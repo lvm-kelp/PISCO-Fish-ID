@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/types.ts","./src/vite-env.d.ts","./src/components/controls.tsx","./src/components/deckempty.tsx","./src/components/flashcard.tsx","./src/lib/cards.ts","./src/lib/pickrandom.ts","./src/lib/storage.ts"],"version":"5.9.3"}
