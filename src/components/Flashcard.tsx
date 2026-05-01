@@ -33,9 +33,12 @@ export function Flashcard({ card, isFlipped, onFlip }: Props) {
         <div
           className="absolute inset-0 backface-hidden rotate-y-180 rounded-2xl shadow-2xl bg-gradient-to-br from-sea-600/55 via-sea-700/60 to-sea-800/70 backdrop-blur-md text-white flex items-center justify-center p-6 ring-1 ring-white/30"
         >
-          <span className="text-4xl sm:text-5xl font-bold text-center leading-tight break-words drop-shadow-lg">
+          
+{isFlipped && (
+<span className="text-4xl sm:text-5xl font-bold text-center leading-tight break-words drop-shadow-lg">
             {card.name}
           </span>
+)}
         </div>
       </button>
     </div>
