@@ -130,7 +130,7 @@ export default function App() {
         <div className="max-w-md mx-auto">
           <div className="flex items-center justify-between mb-2">
             <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight drop-shadow-md">
-              Sea Life Flashcards
+              PISCO Fish ID Flashcards
             </h1>
             <button
               type="button"
