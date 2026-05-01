@@ -8,7 +8,7 @@ import { pickRandomCard } from './lib/pickRandom'
 import type { LastAction } from './types'
 import backgroundImage from './assets/background.jpg'
 
-const CARD_SWAP_DELAY_MS = 350
+const CARD_SWAP_DELAY_MS = 700
 
 export default function App() {
   const [knownIds, setKnownIds] = useState<Set<string>>(() => loadKnownIds())
