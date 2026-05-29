@@ -2,10 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Flashcard } from './components/Flashcard'
 import { Controls } from './components/Controls'
 import { DeckEmpty } from './components/DeckEmpty'
+import { SettingsModal } from './components/SettingsModal'
 import { allCards } from './lib/cards'
-import { loadKnownIds, saveKnownIds } from './lib/storage'
+import {
+  loadKnownIds,
+  loadSelectedCategory,
+  saveKnownIds,
+  saveSelectedCategory,
+} from './lib/storage'
 import { pickRandomCard } from './lib/pickRandom'
-import type { LastAction } from './types'
+import type { Category, LastAction } from './types'
 import backgroundImage from './assets/background.jpg'
 
 const CARD_SWAP_DELAY_MS = 0
@@ -15,15 +21,26 @@ export default function App() {
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [isFlipped, setIsFlipped] = useState(false)
   const [lastAction, setLastAction] = useState<LastAction>(null)
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<Category>(() => loadSelectedCategory())
   const flipResetTimer = useRef<number | null>(null)
 
   useEffect(() => {
     saveKnownIds(knownIds)
   }, [knownIds])
 
+  useEffect(() => {
+    saveSelectedCategory(selectedCategory)
+  }, [selectedCategory])
+
+  const categoryCards = useMemo(
+    () => allCards.filter((c) => c.category === selectedCategory),
+    [selectedCategory],
+  )
+
   const activeDeck = useMemo(
-    () => allCards.filter((c) => !knownIds.has(c.id)),
-    [knownIds],
+    () => categoryCards.filter((c) => !knownIds.has(c.id)),
+    [categoryCards, knownIds],
   )
 
   const currentCard = useMemo(
@@ -75,7 +92,7 @@ export default function App() {
     nextKnown.add(id)
     setKnownIds(nextKnown)
     setLastAction({ cardId: id, markedKnown: true })
-    const deckAfter = allCards.filter((c) => !nextKnown.has(c.id))
+    const deckAfter = categoryCards.filter((c) => !nextKnown.has(c.id))
     advanceToNext(id, deckAfter)
   }
 
@@ -104,13 +121,27 @@ export default function App() {
   }
 
   function handleReset() {
-    setKnownIds(new Set())
+    const nextKnown = new Set(knownIds)
+    for (const c of categoryCards) nextKnown.delete(c.id)
+    setKnownIds(nextKnown)
     setLastAction(null)
     setIsFlipped(false)
   }
 
-  const totalCards = allCards.length
-  const knownCount = knownIds.size
+  function handleCategoryChange(category: Category) {
+    if (category === selectedCategory) return
+    if (flipResetTimer.current !== null) {
+      window.clearTimeout(flipResetTimer.current)
+      flipResetTimer.current = null
+    }
+    setSelectedCategory(category)
+    setLastAction(null)
+    setIsFlipped(false)
+    setCurrentId(null)
+  }
+
+  const totalCards = categoryCards.length
+  const knownCount = totalCards - activeDeck.length
   const progressPct = totalCards === 0 ? 0 : Math.round((knownCount / totalCards) * 100)
   const showEmptyState = totalCards === 0 || activeDeck.length === 0
 
@@ -129,14 +160,32 @@ export default function App() {
       <header className="relative z-10 px-4 pt-4 pb-3 sm:pt-6 sm:pb-4">
         <div className="max-w-md mx-auto">
           <div className="flex items-center justify-between mb-2">
-            <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight drop-shadow-md">
-              PISCO Fish ID Flashcards
-            </h1>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setIsMenuOpen(true)}
+                aria-label="Open settings"
+                className="text-white hover:text-sea-100 drop-shadow-md p-1 -m-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-sea-300/60"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="4" y1="6" x2="20" y2="6" />
+                  <line x1="4" y1="12" x2="20" y2="12" />
+                  <line x1="4" y1="18" x2="20" y2="18" />
+                </svg>
+              </button>
+              <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight drop-shadow-md">
+                PISCO Fish ID Flashcards
+              </h1>
+            </div>
             <button
               type="button"
               onClick={() => {
                 if (knownCount === 0) return
-                if (window.confirm('Reset deck? All cards will return to the rotation.')) {
+                if (
+                  window.confirm(
+                    `Reset ${selectedCategory} deck? All ${selectedCategory} cards will return to the rotation.`,
+                  )
+                ) {
                   handleReset()
                 }
               }}
@@ -182,6 +231,13 @@ export default function App() {
           </>
         )}
       </main>
+
+      <SettingsModal
+        isOpen={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        selected={selectedCategory}
+        onSelect={handleCategoryChange}
+      />
     </div>
   )
 }
