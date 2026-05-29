@@ -1,6 +1,6 @@
-import type { Card } from '../types'
+import { folderToCategory, type Card } from '../types'
 
-const imageModules = import.meta.glob('/images-processed/*.jpg', {
+const imageModules = import.meta.glob('/images-processed/**/*.jpg', {
   eager: true,
   query: '?url',
   import: 'default',
@@ -22,18 +22,20 @@ function filenameToName(filename: string): string {
     .join(' ')
 }
 
-function pathToFilename(path: string): string {
-  const parts = path.split('/')
-  return parts[parts.length - 1]
-}
-
 export const allCards: Card[] = Object.entries(imageModules)
-  .map(([path, url]) => {
-    const filename = pathToFilename(path)
+  .map(([fullPath, url]) => {
+    // fullPath looks like "/images-processed/fish/Black Rockfish.jpg"
+    const parts = fullPath.split('/')
+    const filename = parts[parts.length - 1]
+    const folder = parts[parts.length - 2]
+    const category = folderToCategory(folder)
+    if (!category) return null
     return {
-      id: filename,
+      id: `${folder}/${filename}`,
       name: filenameToName(filename),
       imageUrl: url,
+      category,
     }
   })
+  .filter((c): c is Card => c !== null)
   .sort((a, b) => a.name.localeCompare(b.name))

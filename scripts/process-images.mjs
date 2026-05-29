@@ -38,16 +38,10 @@ async function safeStat(p) {
   }
 }
 
-async function main() {
-  const srcStat = await safeStat(SRC_DIR)
-  if (!srcStat || !srcStat.isDirectory()) {
-    console.error(`Source folder not found: ${SRC_DIR}`)
-    process.exit(1)
-  }
+async function processCategory(category, srcSubDir, destSubDir) {
+  await fs.mkdir(destSubDir, { recursive: true })
 
-  await fs.mkdir(DEST_DIR, { recursive: true })
-
-  const allFiles = await fs.readdir(SRC_DIR)
+  const allFiles = await fs.readdir(srcSubDir)
   const inputs = allFiles.filter((f) => SUPPORTED_EXTS.has(path.extname(f).toLowerCase()))
 
   const targets = new Map()
@@ -55,27 +49,26 @@ async function main() {
     const stem = path.parse(file).name
     const cleaned = cleanStem(stem)
     if (!cleaned) {
-      console.warn(`  skip: "${file}" → empty name after cleaning`)
+      console.warn(`  [${category}] skip: "${file}" → empty name after cleaning`)
       continue
     }
     const targetName = `${cleaned}.jpg`
     if (targets.has(targetName)) {
       const existing = targets.get(targetName)
       console.error(
-        `Name collision: "${file}" and "${existing}" both produce "${targetName}". ` +
-          `Rename one in images/ and re-run.`,
+        `[${category}] Name collision: "${file}" and "${existing}" both produce "${targetName}". ` +
+          `Rename one in images/${category}/ and re-run.`,
       )
       process.exit(1)
     }
     targets.set(targetName, file)
   }
 
-  // Build a case-insensitive lookup of existing dest filenames, retaining the
-  // actual on-disk name. Needed so we behave correctly on case-insensitive
-  // filesystems (default macOS APFS): e.g. "OYT Foo.jpg" and "Oyt Foo.jpg"
-  // collide on disk, but our targets map is case-sensitive.
+  // Build a case-insensitive lookup of existing dest filenames. Needed so that
+  // recasing (e.g. "Oyt Foo.jpg" → "OYT Foo.jpg") takes effect in a single pass
+  // on case-insensitive filesystems (default macOS APFS).
   const destActualByLower = new Map()
-  for (const name of await fs.readdir(DEST_DIR)) {
+  for (const name of await fs.readdir(destSubDir)) {
     destActualByLower.set(name.toLowerCase(), name)
   }
 
@@ -83,8 +76,8 @@ async function main() {
   let skipped = 0
   let renamed = 0
   for (const [targetName, srcName] of targets) {
-    const srcPath = path.join(SRC_DIR, srcName)
-    const destPath = path.join(DEST_DIR, targetName)
+    const srcPath = path.join(srcSubDir, srcName)
+    const destPath = path.join(destSubDir, targetName)
     const existingActual = destActualByLower.get(targetName.toLowerCase())
 
     if (existingActual === targetName) {
@@ -94,13 +87,10 @@ async function main() {
         continue
       }
     } else if (existingActual) {
-      // Case-different version on disk. Remove it explicitly so the new write
-      // takes the desired case (case-insensitive FS would otherwise preserve
-      // the old name and silently drop the rename).
-      await fs.unlink(path.join(DEST_DIR, existingActual))
+      await fs.unlink(path.join(destSubDir, existingActual))
       destActualByLower.delete(targetName.toLowerCase())
       renamed++
-      console.log(`  ↻ recasing ${existingActual} → ${targetName}`)
+      console.log(`  [${category}] ↻ recasing ${existingActual} → ${targetName}`)
     }
 
     try {
@@ -110,25 +100,73 @@ async function main() {
         .jpeg({ quality: JPEG_QUALITY })
         .toFile(destPath)
       processed++
-      console.log(`  ✓ ${srcName} → ${targetName}`)
+      console.log(`  [${category}] ✓ ${srcName} → ${targetName}`)
     } catch (err) {
-      console.error(`  ✗ ${srcName}: ${err.message}`)
+      console.error(`  [${category}] ✗ ${srcName}: ${err.message}`)
       process.exit(1)
     }
   }
 
-  const existingDestFiles = await fs.readdir(DEST_DIR)
+  const existingDestFiles = await fs.readdir(destSubDir)
   let removed = 0
   for (const file of existingDestFiles) {
     if (!targets.has(file)) {
-      await fs.unlink(path.join(DEST_DIR, file))
-      console.log(`  − removed orphan ${file}`)
+      await fs.unlink(path.join(destSubDir, file))
+      console.log(`  [${category}] − removed orphan ${file}`)
       removed++
     }
   }
 
+  return { processed, skipped, renamed, removed, total: targets.size }
+}
+
+async function main() {
+  const srcStat = await safeStat(SRC_DIR)
+  if (!srcStat || !srcStat.isDirectory()) {
+    console.error(`Source folder not found: ${SRC_DIR}`)
+    process.exit(1)
+  }
+
+  await fs.mkdir(DEST_DIR, { recursive: true })
+
+  const entries = await fs.readdir(SRC_DIR, { withFileTypes: true })
+  const categories = []
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue
+    if (entry.isDirectory()) {
+      categories.push(entry.name)
+    } else if (entry.isFile() && SUPPORTED_EXTS.has(path.extname(entry.name).toLowerCase())) {
+      console.warn(
+        `  ⚠ skip: "images/${entry.name}" is at the root, not inside a category folder. ` +
+          `Move it into images/<category>/ to include it.`,
+      )
+    }
+  }
+
+  if (categories.length === 0) {
+    console.error('No category subfolders found in images/. Expected e.g. images/fish/.')
+    process.exit(1)
+  }
+
+  const totals = { processed: 0, skipped: 0, renamed: 0, removed: 0, total: 0 }
+  for (const category of categories) {
+    const srcSubDir = path.join(SRC_DIR, category)
+    const destSubDir = path.join(DEST_DIR, category)
+    const stats = await processCategory(category, srcSubDir, destSubDir)
+    for (const k of Object.keys(totals)) totals[k] += stats[k]
+  }
+
+  // Remove orphan category folders from dest (categories that no longer exist in src).
+  const destEntries = await fs.readdir(DEST_DIR, { withFileTypes: true })
+  for (const entry of destEntries) {
+    if (entry.isDirectory() && !categories.includes(entry.name)) {
+      await fs.rm(path.join(DEST_DIR, entry.name), { recursive: true, force: true })
+      console.log(`  − removed orphan category ${entry.name}/`)
+    }
+  }
+
   console.log(
-    `\nDone. processed=${processed} skipped=${skipped} recased=${renamed} removed=${removed} total=${targets.size}`,
+    `\nDone. processed=${totals.processed} skipped=${totals.skipped} recased=${totals.renamed} removed=${totals.removed} total=${totals.total} (across ${categories.length} categor${categories.length === 1 ? 'y' : 'ies'})`,
   )
 }
 
