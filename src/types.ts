@@ -27,7 +27,12 @@ export type Card = {
   category: Category
 }
 
+// Snapshot of state captured before a Known/Practice action, used to restore
+// on Undo. Snapshotting both sets (rather than tracking diffs) keeps the undo
+// path uniform regardless of which sets the forward action mutated.
 export type LastAction = {
-  cardId: string
-  markedKnown: boolean
+  prevKnown: Set<string>
+  prevDeferred: Set<string>
+  prevCurrentId: string
+  prevIsFlipped: boolean
 } | null
