@@ -5,19 +5,34 @@ import { DeckEmpty } from './components/DeckEmpty'
 import { SettingsModal } from './components/SettingsModal'
 import { allCards } from './lib/cards'
 import {
+  loadDeferredIds,
   loadKnownIds,
   loadSelectedCategory,
+  saveDeferredIds,
   saveKnownIds,
   saveSelectedCategory,
 } from './lib/storage'
-import { pickRandomCard } from './lib/pickRandom'
+import { pickNextCard } from './lib/pickRandom'
 import type { Category, LastAction } from './types'
 import backgroundImage from './assets/background.jpg'
 
 const CARD_SWAP_DELAY_MS = 0
 
+function withAdd(s: Set<string>, id: string): Set<string> {
+  const next = new Set(s)
+  next.add(id)
+  return next
+}
+
+function withDel(s: Set<string>, id: string): Set<string> {
+  const next = new Set(s)
+  next.delete(id)
+  return next
+}
+
 export default function App() {
   const [knownIds, setKnownIds] = useState<Set<string>>(() => loadKnownIds())
+  const [deferredIds, setDeferredIds] = useState<Set<string>>(() => loadDeferredIds())
   const [currentId, setCurrentId] = useState<string | null>(null)
   const [isFlipped, setIsFlipped] = useState(false)
   const [lastAction, setLastAction] = useState<LastAction>(null)
@@ -28,6 +43,10 @@ export default function App() {
   useEffect(() => {
     saveKnownIds(knownIds)
   }, [knownIds])
+
+  useEffect(() => {
+    saveDeferredIds(deferredIds)
+  }, [deferredIds])
 
   useEffect(() => {
     saveSelectedCategory(selectedCategory)
@@ -55,11 +74,11 @@ export default function App() {
     }
     const stillValid = currentId && activeDeck.some((c) => c.id === currentId)
     if (!stillValid) {
-      const next = pickRandomCard(activeDeck, null)
+      const next = pickNextCard(activeDeck, deferredIds, null)
       setCurrentId(next?.id ?? null)
       setIsFlipped(false)
     }
-  }, [activeDeck, currentId])
+  }, [activeDeck, currentId, deferredIds])
 
   useEffect(() => {
     return () => {
@@ -69,13 +88,17 @@ export default function App() {
     }
   }, [])
 
-  function advanceToNext(prevId: string, deckAfterAction: typeof allCards) {
+  function advanceToNext(
+    prevId: string,
+    deckAfterAction: typeof allCards,
+    deferredAfterAction: Set<string>,
+  ) {
     setIsFlipped(false)
     if (flipResetTimer.current !== null) {
       window.clearTimeout(flipResetTimer.current)
     }
     flipResetTimer.current = window.setTimeout(() => {
-      const next = pickRandomCard(deckAfterAction, prevId)
+      const next = pickNextCard(deckAfterAction, deferredAfterAction, prevId)
       setCurrentId(next?.id ?? null)
       flipResetTimer.current = null
     }, CARD_SWAP_DELAY_MS)
@@ -88,19 +111,24 @@ export default function App() {
   function handleKnown() {
     if (!currentCard) return
     const id = currentCard.id
-    const nextKnown = new Set(knownIds)
-    nextKnown.add(id)
+    const wasInDeferred = deferredIds.has(id)
+    const nextKnown = withAdd(knownIds, id)
+    const nextDeferred = wasInDeferred ? withDel(deferredIds, id) : deferredIds
     setKnownIds(nextKnown)
-    setLastAction({ cardId: id, markedKnown: true })
+    if (wasInDeferred) setDeferredIds(nextDeferred)
+    setLastAction({ cardId: id, markedKnown: true, wasInDeferred })
     const deckAfter = categoryCards.filter((c) => !nextKnown.has(c.id))
-    advanceToNext(id, deckAfter)
+    advanceToNext(id, deckAfter, nextDeferred)
   }
 
   function handlePractice() {
     if (!currentCard) return
     const id = currentCard.id
-    setLastAction({ cardId: id, markedKnown: false })
-    advanceToNext(id, activeDeck)
+    const wasInDeferred = deferredIds.has(id)
+    const nextDeferred = wasInDeferred ? deferredIds : withAdd(deferredIds, id)
+    if (!wasInDeferred) setDeferredIds(nextDeferred)
+    setLastAction({ cardId: id, markedKnown: false, wasInDeferred })
+    advanceToNext(id, activeDeck, nextDeferred)
   }
 
   function handleUndo() {
@@ -109,11 +137,13 @@ export default function App() {
       window.clearTimeout(flipResetTimer.current)
       flipResetTimer.current = null
     }
-    const { cardId, markedKnown } = lastAction
+    const { cardId, markedKnown, wasInDeferred } = lastAction
     if (markedKnown) {
-      const nextKnown = new Set(knownIds)
-      nextKnown.delete(cardId)
-      setKnownIds(nextKnown)
+      setKnownIds(withDel(knownIds, cardId))
+      if (wasInDeferred) setDeferredIds(withAdd(deferredIds, cardId))
+    } else if (!wasInDeferred) {
+      // Practice click on a card that wasn't already deferred — we added it; remove on undo.
+      setDeferredIds(withDel(deferredIds, cardId))
     }
     setCurrentId(cardId)
     setIsFlipped(true)
@@ -122,8 +152,13 @@ export default function App() {
 
   function handleReset() {
     const nextKnown = new Set(knownIds)
-    for (const c of categoryCards) nextKnown.delete(c.id)
+    const nextDeferred = new Set(deferredIds)
+    for (const c of categoryCards) {
+      nextKnown.delete(c.id)
+      nextDeferred.delete(c.id)
+    }
     setKnownIds(nextKnown)
+    setDeferredIds(nextDeferred)
     setLastAction(null)
     setIsFlipped(false)
   }
@@ -142,6 +177,8 @@ export default function App() {
 
   const totalCards = categoryCards.length
   const knownCount = totalCards - activeDeck.length
+  const deferredCount = categoryCards.reduce((n, c) => n + (deferredIds.has(c.id) ? 1 : 0), 0)
+  const canReset = knownCount > 0 || deferredCount > 0
   const progressPct = totalCards === 0 ? 0 : Math.round((knownCount / totalCards) * 100)
   const showEmptyState = totalCards === 0 || activeDeck.length === 0
 
@@ -180,7 +217,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => {
-                if (knownCount === 0) return
+                if (!canReset) return
                 if (
                   window.confirm(
                     `Reset ${selectedCategory} deck? All ${selectedCategory} cards will return to the rotation.`,
@@ -189,7 +226,7 @@ export default function App() {
                   handleReset()
                 }
               }}
-              disabled={knownCount === 0}
+              disabled={!canReset}
               className="text-xs font-medium text-sea-100 disabled:text-sea-100/30 hover:underline disabled:no-underline"
             >
               Reset

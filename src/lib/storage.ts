@@ -1,11 +1,12 @@
 import { CATEGORIES, type Category } from '../types'
 
 const KNOWN_KEY = 'flashcards:v2:known'
+const DEFERRED_KEY = 'flashcards:v2:deferred'
 const CATEGORY_KEY = 'flashcards:v2:category'
 
-export function loadKnownIds(): Set<string> {
+function loadStringSet(key: string): Set<string> {
   try {
-    const raw = localStorage.getItem(KNOWN_KEY)
+    const raw = localStorage.getItem(key)
     if (!raw) return new Set()
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return new Set()
@@ -15,12 +16,28 @@ export function loadKnownIds(): Set<string> {
   }
 }
 
-export function saveKnownIds(ids: Set<string>): void {
+function saveStringSet(key: string, ids: Set<string>): void {
   try {
-    localStorage.setItem(KNOWN_KEY, JSON.stringify([...ids]))
+    localStorage.setItem(key, JSON.stringify([...ids]))
   } catch {
     // localStorage unavailable (private mode, quota) — fail silently
   }
+}
+
+export function loadKnownIds(): Set<string> {
+  return loadStringSet(KNOWN_KEY)
+}
+
+export function saveKnownIds(ids: Set<string>): void {
+  saveStringSet(KNOWN_KEY, ids)
+}
+
+export function loadDeferredIds(): Set<string> {
+  return loadStringSet(DEFERRED_KEY)
+}
+
+export function saveDeferredIds(ids: Set<string>): void {
+  saveStringSet(DEFERRED_KEY, ids)
 }
 
 export function loadSelectedCategory(): Category {

@@ -30,4 +30,5 @@ export type Card = {
 export type LastAction = {
   cardId: string
   markedKnown: boolean
+  wasInDeferred: boolean
 } | null
