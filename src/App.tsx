@@ -19,12 +19,14 @@ import backgroundImage from './assets/background.jpg'
 const CARD_SWAP_DELAY_MS = 0
 
 function withAdd(s: Set<string>, id: string): Set<string> {
+  if (s.has(id)) return s
   const next = new Set(s)
   next.add(id)
   return next
 }
 
 function withDel(s: Set<string>, id: string): Set<string> {
+  if (!s.has(id)) return s
   const next = new Set(s)
   next.delete(id)
   return next
@@ -108,15 +110,25 @@ export default function App() {
     setIsFlipped((f) => !f)
   }
 
+  function snapshot(): NonNullable<LastAction> | null {
+    if (!currentCard) return null
+    return {
+      prevKnown: knownIds,
+      prevDeferred: deferredIds,
+      prevCurrentId: currentCard.id,
+      prevIsFlipped: isFlipped,
+    }
+  }
+
   function handleKnown() {
     if (!currentCard) return
     const id = currentCard.id
-    const wasInDeferred = deferredIds.has(id)
+    const snap = snapshot()
     const nextKnown = withAdd(knownIds, id)
-    const nextDeferred = wasInDeferred ? withDel(deferredIds, id) : deferredIds
+    const nextDeferred = withDel(deferredIds, id)
     setKnownIds(nextKnown)
-    if (wasInDeferred) setDeferredIds(nextDeferred)
-    setLastAction({ cardId: id, markedKnown: true, wasInDeferred })
+    setDeferredIds(nextDeferred)
+    setLastAction(snap)
     const deckAfter = categoryCards.filter((c) => !nextKnown.has(c.id))
     advanceToNext(id, deckAfter, nextDeferred)
   }
@@ -124,10 +136,10 @@ export default function App() {
   function handlePractice() {
     if (!currentCard) return
     const id = currentCard.id
-    const wasInDeferred = deferredIds.has(id)
-    const nextDeferred = wasInDeferred ? deferredIds : withAdd(deferredIds, id)
-    if (!wasInDeferred) setDeferredIds(nextDeferred)
-    setLastAction({ cardId: id, markedKnown: false, wasInDeferred })
+    const snap = snapshot()
+    const nextDeferred = withAdd(deferredIds, id)
+    setDeferredIds(nextDeferred)
+    setLastAction(snap)
     advanceToNext(id, activeDeck, nextDeferred)
   }
 
@@ -137,16 +149,10 @@ export default function App() {
       window.clearTimeout(flipResetTimer.current)
       flipResetTimer.current = null
     }
-    const { cardId, markedKnown, wasInDeferred } = lastAction
-    if (markedKnown) {
-      setKnownIds(withDel(knownIds, cardId))
-      if (wasInDeferred) setDeferredIds(withAdd(deferredIds, cardId))
-    } else if (!wasInDeferred) {
-      // Practice click on a card that wasn't already deferred — we added it; remove on undo.
-      setDeferredIds(withDel(deferredIds, cardId))
-    }
-    setCurrentId(cardId)
-    setIsFlipped(true)
+    setKnownIds(lastAction.prevKnown)
+    setDeferredIds(lastAction.prevDeferred)
+    setCurrentId(lastAction.prevCurrentId)
+    setIsFlipped(lastAction.prevIsFlipped)
     setLastAction(null)
   }
 
