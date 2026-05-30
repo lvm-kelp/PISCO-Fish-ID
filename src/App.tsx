@@ -174,7 +174,7 @@ export default function App() {
                 </svg>
               </button>
               <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight drop-shadow-md">
-                PISCO Fish ID Flashcards
+                PISCO Flash Cards
               </h1>
             </div>
             <button
